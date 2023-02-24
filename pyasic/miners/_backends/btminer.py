@@ -16,6 +16,7 @@
 
 import ipaddress
 import logging
+import warnings
 from collections import namedtuple
 from typing import List, Optional, Tuple, Union
 
@@ -115,6 +116,8 @@ class BTMiner(BaseMiner):
         return False
 
     async def send_config(self, config: MinerConfig, user_suffix: str = None) -> None:
+        self.config = config
+
         conf = config.as_wm(user_suffix=user_suffix)
         pools_conf = conf["pools"]
 
@@ -149,16 +152,25 @@ class BTMiner(BaseMiner):
             summary = data["summary"][0]
         except APIError as e:
             logging.warning(e)
+        except LookupError:
+            pass
 
         if pools:
             if "POOLS" in pools:
                 cfg = cfg.from_api(pools["POOLS"])
+        else:
+            # somethings wrong with the miner
+            warnings.warn(
+                f"Failed to gather pool config for miner: {self}, miner did not return pool information."
+            )
         if summary:
             if "SUMMARY" in summary:
                 if wattage := summary["SUMMARY"][0].get("Power Limit"):
                     cfg.autotuning_wattage = wattage
 
-        return cfg
+        self.config = cfg
+
+        return self.config
 
     async def set_power_limit(self, wattage: int) -> bool:
         try:
