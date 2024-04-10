@@ -14,8 +14,8 @@
 #  limitations under the License.                                              -
 # ------------------------------------------------------------------------------
 
-from pyasic.miners._backends import BOSMiner  # noqa - Ignore access to _module
-from pyasic.miners._types import S9  # noqa - Ignore access to _module
+from pyasic.miners.backends import BOSMiner
+from pyasic.miners.models import S9
 
 
 class BOSMinerS9(BOSMiner, S9):

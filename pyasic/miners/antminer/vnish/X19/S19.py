@@ -14,9 +14,46 @@
 #  limitations under the License.                                              -
 # ------------------------------------------------------------------------------
 
-from pyasic.miners._backends import VNish  # noqa - Ignore access to _module
-from pyasic.miners._types import S19  # noqa - Ignore access to _module
+from pyasic.miners.backends import VNish
+from pyasic.miners.models import (
+    S19,
+    S19XP,
+    S19a,
+    S19aPro,
+    S19j,
+    S19jPro,
+    S19NoPIC,
+    S19Pro,
+)
 
 
 class VNishS19(VNish, S19):
+    pass
+
+
+class VNishS19NoPIC(VNish, S19NoPIC):
+    pass
+
+
+class VNishS19Pro(VNish, S19Pro):
+    pass
+
+
+class VNishS19XP(VNish, S19XP):
+    pass
+
+
+class VNishS19a(VNish, S19a):
+    pass
+
+
+class VNishS19aPro(VNish, S19aPro):
+    pass
+
+
+class VNishS19j(VNish, S19j):
+    pass
+
+
+class VNishS19jPro(VNish, S19jPro):
     pass

@@ -14,8 +14,8 @@
 #  limitations under the License.                                              -
 # ------------------------------------------------------------------------------
 
-from pyasic.miners._backends import VNish  # noqa - Ignore access to _module
-from pyasic.miners._types import T19  # noqa - Ignore access to _module
+from pyasic.miners.backends import VNish
+from pyasic.miners.models import T19
 
 
 class VNishT19(VNish, T19):

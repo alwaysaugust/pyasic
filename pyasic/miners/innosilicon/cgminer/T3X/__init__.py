@@ -14,4 +14,4 @@
 #  limitations under the License.                                              -
 # ------------------------------------------------------------------------------
 
-from .T3H_Plus import CGMinerInnosiliconT3HPlus
+from .T3H import InnosiliconT3HPlus

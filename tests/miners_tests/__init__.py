@@ -13,157 +13,93 @@
 #  See the License for the specific language governing permissions and         -
 #  limitations under the License.                                              -
 # ------------------------------------------------------------------------------
-import asyncio
 import inspect
-import sys
 import unittest
 import warnings
+from dataclasses import asdict
 
-from pyasic.miners._backends import CGMiner  # noqa
-from pyasic.miners.base import BaseMiner
-from pyasic.miners.miner_factory import MINER_CLASSES, MinerFactory
+from pyasic.miners.factory import MINER_CLASSES
 
 
 class MinersTest(unittest.TestCase):
-    def test_miner_model_creation(self):
+    def test_miner_type_creation(self):
         warnings.filterwarnings("ignore")
-        for miner_model in MINER_CLASSES.keys():
-            for miner_api in MINER_CLASSES[miner_model].keys():
+        for miner_type in MINER_CLASSES.keys():
+            for miner_model in MINER_CLASSES[miner_type].keys():
                 with self.subTest(
-                    msg=f"Creation of miner using model={miner_model}, api={miner_api}",
+                    msg=f"Test creation of miner",
+                    miner_type=miner_type,
                     miner_model=miner_model,
-                    miner_api=miner_api,
                 ):
-                    miner = MINER_CLASSES[miner_model][miner_api]("0.0.0.0")
+                    miner = MINER_CLASSES[miner_type][miner_model]("127.0.0.1")
                     self.assertTrue(
-                        isinstance(miner, MINER_CLASSES[miner_model][miner_api])
+                        isinstance(miner, MINER_CLASSES[miner_type][miner_model])
                     )
 
-    def test_miner_backend_backup_creation(self):
-        warnings.filterwarnings("ignore")
-
-        backends = inspect.getmembers(
-            sys.modules["pyasic.miners._backends"], inspect.isclass
+    def test_miner_data_map_keys(self):
+        keys = sorted(
+            [
+                "api_ver",
+                "config",
+                "env_temp",
+                "errors",
+                "fan_psu",
+                "fans",
+                "fault_light",
+                "fw_ver",
+                "hashboards",
+                "hashrate",
+                "hostname",
+                "is_mining",
+                "mac",
+                "expected_hashrate",
+                "uptime",
+                "wattage",
+                "wattage_limit",
+            ]
         )
-        for backend in backends:
-            miner_class = backend[1]
-            with self.subTest(miner_class=miner_class):
-                miner = miner_class("0.0.0.0")
-                self.assertTrue(isinstance(miner, miner_class))
-
-    def test_miner_type_creation_failure(self):
         warnings.filterwarnings("ignore")
+        for miner_type in MINER_CLASSES.keys():
+            for miner_model in MINER_CLASSES[miner_type].keys():
+                with self.subTest(
+                    msg=f"Data map key check",
+                    miner_type=miner_type,
+                    miner_model=miner_model,
+                ):
+                    miner = MINER_CLASSES[miner_type][miner_model]("127.0.0.1")
+                    miner_keys = sorted(
+                        [str(k) for k in asdict(miner.data_locations).keys()]
+                    )
+                    self.assertEqual(miner_keys, keys)
 
-        backends = inspect.getmembers(
-            sys.modules["pyasic.miners._types"], inspect.isclass
-        )
-        for backend in backends:
-            miner_class = backend[1]
-            with self.subTest(miner_class=miner_class):
-                with self.assertRaises(TypeError):
-                    miner_class("0.0.0.0")
-        with self.assertRaises(TypeError):
-            BaseMiner("0.0.0.0")
-
-    def test_miner_comparisons(self):
-        miner_1 = CGMiner("1.1.1.1")
-        miner_2 = CGMiner("2.2.2.2")
-        miner_3 = CGMiner("1.1.1.1")
-        self.assertEqual(miner_1, miner_3)
-        self.assertGreater(miner_2, miner_1)
-        self.assertLess(miner_3, miner_2)
-
-
-class MinerFactoryTest(unittest.TestCase):
-    def test_miner_factory_creation(self):
+    def test_data_locations_match_signatures_command(self):
         warnings.filterwarnings("ignore")
-
-        self.assertDictEqual(MinerFactory().miners, {})
-        miner_factory = MinerFactory()
-        self.assertIs(MinerFactory(), miner_factory)
-
-    def test_get_miner_generator(self):
-        async def _coro():
-            gen = MinerFactory().get_miner_generator([])
-            miners = []
-            async for miner in gen:
-                miners.append(miner)
-            return miners
-
-        _miners = asyncio.run(_coro())
-        self.assertListEqual(_miners, [])
-
-    def test_miner_selection(self):
-        warnings.filterwarnings("ignore")
-
-        for miner_model in MINER_CLASSES.keys():
-            with self.subTest():
-                miner = MinerFactory()._select_miner_from_classes(
-                    "0.0.0.0", miner_model, None, None
-                )
-                self.assertIsInstance(miner, BaseMiner)
-        for api in ["BOSMiner+", "BOSMiner", "CGMiner", "BTMiner", "BMMiner"]:
-            with self.subTest():
-                miner = MinerFactory()._select_miner_from_classes(
-                    "0.0.0.0", None, api, None
-                )
-                self.assertIsInstance(miner, BaseMiner)
-
-        with self.subTest():
-            miner = MinerFactory()._select_miner_from_classes(
-                "0.0.0.0", "ANTMINER S17+", "Fake API", None
-            )
-            self.assertIsInstance(miner, BaseMiner)
-
-        with self.subTest():
-            miner = MinerFactory()._select_miner_from_classes(
-                "0.0.0.0", "M30S", "BTMiner", "G20"
-            )
-            self.assertIsInstance(miner, BaseMiner)
-
-    def test_validate_command(self):
-        bad_test_data_returns = [
-            {},
-            {
-                "cmd": [
-                    {
-                        "STATUS": [
-                            {"STATUS": "E", "Msg": "Command failed for some reason."}
-                        ]
-                    }
-                ]
-            },
-            {"STATUS": "E", "Msg": "Command failed for some reason."},
-            {
-                "STATUS": [{"STATUS": "E", "Msg": "Command failed for some reason."}],
-                "id": 1,
-            },
-        ]
-        for data in bad_test_data_returns:
-            with self.subTest():
-
-                async def _coro(miner_ret):
-                    _data = await MinerFactory()._validate_command(miner_ret)
-                    return _data
-
-                ret = asyncio.run(_coro(data))
-                self.assertFalse(ret[0])
-
-        good_test_data_returns = [
-            {
-                "STATUS": [{"STATUS": "S", "Msg": "Yay! Command succeeded."}],
-                "id": 1,
-            },
-        ]
-        for data in good_test_data_returns:
-            with self.subTest():
-
-                async def _coro(miner_ret):
-                    _data = await MinerFactory()._validate_command(miner_ret)
-                    return _data
-
-                ret = asyncio.run(_coro(data))
-                self.assertTrue(ret[0])
+        for miner_type in MINER_CLASSES.keys():
+            for miner_model in MINER_CLASSES[miner_type].keys():
+                miner = MINER_CLASSES[miner_type][miner_model]("127.0.0.1")
+                if miner.data_locations is None:
+                    raise TypeError(
+                        f"model={miner_model} type={miner_type} has no data locations"
+                    )
+                for data_point in asdict(miner.data_locations).values():
+                    with self.subTest(
+                        msg=f"Test {data_point['cmd']} signature matches",
+                        miner_type=miner_type,
+                        miner_model=miner_model,
+                    ):
+                        func = getattr(miner, data_point["cmd"])
+                        signature = inspect.signature(func)
+                        parameters = signature.parameters
+                        param_names = list(parameters.keys())
+                        for arg in ["kwargs", "args"]:
+                            try:
+                                param_names.remove(arg)
+                            except ValueError:
+                                pass
+                        self.assertEqual(
+                            set(param_names),
+                            set([k["name"] for k in data_point["kwargs"]]),
+                        )
 
 
 if __name__ == "__main__":

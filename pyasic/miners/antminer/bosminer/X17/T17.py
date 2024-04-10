@@ -14,9 +14,17 @@
 #  limitations under the License.                                              -
 # ------------------------------------------------------------------------------
 
-from pyasic.miners._backends import BOSMiner  # noqa - Ignore access to _module
-from pyasic.miners._types import T17  # noqa - Ignore access to _module
+from pyasic.miners.backends import BOSMiner
+from pyasic.miners.models import T17, T17e, T17Plus
 
 
 class BOSMinerT17(BOSMiner, T17):
+    pass
+
+
+class BOSMinerT17Plus(BOSMiner, T17Plus):
+    pass
+
+
+class BOSMinerT17e(BOSMiner, T17e):
     pass

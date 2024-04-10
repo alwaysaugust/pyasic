@@ -14,10 +14,9 @@
 #  limitations under the License.                                              -
 # ------------------------------------------------------------------------------
 
-from pyasic.miners._types import Avalon1047  # noqa - Ignore access to _module
+from pyasic.miners.backends import AvalonMiner
+from pyasic.miners.models import Avalon1047
 
-from .A10X import CGMinerA10X
 
-
-class CGMinerAvalon1047(CGMinerA10X, Avalon1047):
+class CGMinerAvalon1047(AvalonMiner, Avalon1047):
     pass

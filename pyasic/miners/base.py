@@ -13,46 +13,50 @@
 #  See the License for the specific language governing permissions and         -
 #  limitations under the License.                                              -
 # ------------------------------------------------------------------------------
-
-import inspect
+import asyncio
 import ipaddress
-import logging
-from abc import ABC, abstractmethod
-from typing import List, Optional, Tuple, TypeVar
-
-import asyncssh
+import warnings
+from typing import List, Optional, Protocol, Tuple, Type, TypeVar, Union
 
 from pyasic.config import MinerConfig
 from pyasic.data import Fan, HashBoard, MinerData
 from pyasic.data.error_codes import MinerErrorData
 from pyasic.errors import APIError
+from pyasic.logger import logger
+from pyasic.miners.data import DataLocations, DataOptions, RPCAPICommand, WebAPICommand
 
 
-class BaseMiner(ABC):
-    def __init__(self, *args, **kwargs) -> None:
-        self.ip = None
-        self.uname = "root"
-        self.pwd = "admin"
-        self.api = None
-        self.api_type = None
-        self.api_ver = None
-        self.fw_ver = None
-        self.model = None
-        self.make = None
-        self.light = None
-        self.hostname = None
-        self.nominal_chips = 1
-        self.fan_count = 2
-        self.config = None
-        self.ideal_hashboards = 3
+class MinerProtocol(Protocol):
+    _rpc_cls: Type = None
+    _web_cls: Type = None
+    _ssh_cls: Type = None
 
-    def __new__(cls, *args, **kwargs):
-        if cls is BaseMiner:
-            raise TypeError(f"Only children of '{cls.__name__}' may be instantiated")
-        return object.__new__(cls)
+    ip: str = None
+    rpc: _rpc_cls = None
+    web: _web_cls = None
+    ssh: _ssh_cls = None
+
+    make: str = None
+    raw_model: str = None
+    firmware: str = None
+
+    expected_hashboards: int = 3
+    expected_chips: int = None
+    expected_fans: int = 2
+
+    data_locations: DataLocations = None
+
+    supports_shutdown: bool = False
+    supports_power_modes: bool = False
+    supports_autotuning: bool = False
+
+    api_ver: str = None
+    fw_ver: str = None
+    light: bool = None
+    config: MinerConfig = None
 
     def __repr__(self):
-        return f"{'' if not self.api_type else self.api_type}{'' if not self.model else ' ' + self.model}: {str(self.ip)}"
+        return f"{self.model}: {str(self.ip)}"
 
     def __lt__(self, other):
         return ipaddress.ip_address(self.ip) < ipaddress.ip_address(other.ip)
@@ -63,85 +67,66 @@ class BaseMiner(ABC):
     def __eq__(self, other):
         return ipaddress.ip_address(self.ip) == ipaddress.ip_address(other.ip)
 
-    async def _get_ssh_connection(self) -> asyncssh.connect:
-        """Create a new asyncssh connection"""
-        try:
-            conn = await asyncssh.connect(
-                str(self.ip),
-                known_hosts=None,
-                username=self.uname,
-                password=self.pwd,
-                server_host_key_algs=["ssh-rsa"],
-            )
-            return conn
-        except asyncssh.misc.PermissionDenied:
-            try:
-                conn = await asyncssh.connect(
-                    str(self.ip),
-                    known_hosts=None,
-                    username="root",
-                    password="admin",
-                    server_host_key_algs=["ssh-rsa"],
-                )
-                return conn
-            except Exception as e:
-                raise e
-        except OSError as e:
-            logging.warning(f"Connection refused: {self}")
-            raise e
-        except Exception as e:
-            raise e
+    @property
+    def model(self) -> str:
+        if self.raw_model is not None:
+            model_data = [self.raw_model]
+        elif self.make is not None:
+            model_data = [self.make]
+        else:
+            model_data = ["Unknown"]
+        if self.firmware is not None:
+            model_data.append(f"({self.firmware})")
+        return " ".join(model_data)
+
+    @property
+    def api(self):
+        return self.rpc
 
     async def check_light(self) -> bool:
         return await self.get_fault_light()
 
-    @abstractmethod
     async def fault_light_on(self) -> bool:
         """Turn the fault light of the miner on and return success as a boolean.
 
         Returns:
             A boolean value of the success of turning the light on.
         """
-        pass
+        return False
 
-    @abstractmethod
     async def fault_light_off(self) -> bool:
         """Turn the fault light of the miner off and return success as a boolean.
 
         Returns:
             A boolean value of the success of turning the light off.
         """
-        pass
+        return False
 
-    @abstractmethod
     async def get_config(self) -> MinerConfig:
-        # Not a data gathering function, since this is used for configuration and not MinerData
+        # Not a data gathering function, since this is used for configuration
         """Get the mining configuration of the miner and return it as a [`MinerConfig`][pyasic.config.MinerConfig].
 
         Returns:
             A [`MinerConfig`][pyasic.config.MinerConfig] containing the pool information and mining configuration.
         """
-        pass
+        return MinerConfig()
 
-    @abstractmethod
     async def reboot(self) -> bool:
         """Reboot the miner and return success as a boolean.
 
         Returns:
             A boolean value of the success of rebooting the miner.
         """
-        pass
+        return False
 
-    @abstractmethod
     async def restart_backend(self) -> bool:
         """Restart the mining process of the miner (bosminer, bmminer, cgminer, etc) and return success as a boolean.
 
         Returns:
             A boolean value of the success of restarting the mining process.
         """
-        pass
+        return False
 
-    @abstractmethod
     async def send_config(self, config: MinerConfig, user_suffix: str = None) -> None:
         """Set the mining configuration of the miner.
 
@@ -151,25 +136,22 @@ class BaseMiner(ABC):
         """
         return None
 
-    @abstractmethod
     async def stop_mining(self) -> bool:
         """Stop the mining process of the miner.
 
         Returns:
             A boolean value of the success of stopping the mining process.
         """
-        pass
+        return False
 
-    @abstractmethod
     async def resume_mining(self) -> bool:
         """Resume the mining process of the miner.
 
         Returns:
             A boolean value of the success of resuming the mining process.
         """
-        pass
+        return False
 
-    @abstractmethod
     async def set_power_limit(self, wattage: int) -> bool:
         """Set the power limit to be used by the miner.
 
@@ -179,274 +161,304 @@ class BaseMiner(ABC):
         Returns:
             A boolean value of the success of setting the power limit.
         """
-        pass
+        return False
 
     ##################################################
     ### DATA GATHERING FUNCTIONS (get_{some_data}) ###
     ##################################################
 
-    @abstractmethod
-    async def get_mac(self, *args, **kwargs) -> Optional[str]:
+    async def get_mac(self) -> Optional[str]:
         """Get the MAC address of the miner and return it as a string.
 
         Returns:
             A string representing the MAC address of the miner.
         """
-        pass
+        return await self._get_mac()
 
-    @abstractmethod
     async def get_model(self) -> Optional[str]:
         """Get the model of the miner and return it as a string.
 
         Returns:
             A string representing the model of the miner.
         """
-        pass
+        return self.model
 
-    @abstractmethod
-    async def get_api_ver(self, *args, **kwargs) -> Optional[str]:
+    async def get_api_ver(self) -> Optional[str]:
         """Get the API version of the miner and is as a string.
 
         Returns:
             API version as a string.
         """
-        pass
+        return await self._get_api_ver()
 
-    @abstractmethod
-    async def get_fw_ver(self, *args, **kwargs) -> Optional[str]:
+    async def get_fw_ver(self) -> Optional[str]:
         """Get the firmware version of the miner and is as a string.
 
         Returns:
             Firmware version as a string.
         """
-        pass
+        return await self._get_fw_ver()
 
-    @abstractmethod
-    async def get_version(self, *args, **kwargs) -> Tuple[Optional[str], Optional[str]]:
+    async def get_version(self) -> Tuple[Optional[str], Optional[str]]:
         """Get the API version and firmware version of the miner and return them as strings.
 
         Returns:
             A tuple of (API version, firmware version) as strings.
         """
-        pass
+        api_ver = await self.get_api_ver()
+        fw_ver = await self.get_fw_ver()
+        return api_ver, fw_ver
 
-    @abstractmethod
-    async def get_hostname(self, *args, **kwargs) -> Optional[str]:
+    async def get_hostname(self) -> Optional[str]:
         """Get the hostname of the miner and return it as a string.
 
         Returns:
             A string representing the hostname of the miner.
         """
-        pass
+        return await self._get_hostname()
 
-    @abstractmethod
-    async def get_hashrate(self, *args, **kwargs) -> Optional[float]:
+    async def get_hashrate(self) -> Optional[float]:
         """Get the hashrate of the miner and return it as a float in TH/s.
 
         Returns:
             Hashrate of the miner in TH/s as a float.
         """
-        pass
+        return await self._get_hashrate()
 
-    @abstractmethod
-    async def get_hashboards(self, *args, **kwargs) -> list[HashBoard]:
+    async def get_hashboards(self) -> List[HashBoard]:
         """Get hashboard data from the miner in the form of [`HashBoard`][pyasic.data.HashBoard].
 
         Returns:
             A [`HashBoard`][pyasic.data.HashBoard] instance containing hashboard data from the miner.
         """
-        pass
+        return await self._get_hashboards()
 
-    @abstractmethod
-    async def get_env_temp(self, *args, **kwargs) -> Optional[float]:
+    async def get_env_temp(self) -> Optional[float]:
         """Get environment temp from the miner as a float.
 
         Returns:
             Environment temp of the miner as a float.
         """
-        pass
+        return await self._get_env_temp()
 
-    @abstractmethod
-    async def get_wattage(self, *args, **kwargs) -> Optional[int]:
+    async def get_wattage(self) -> Optional[int]:
         """Get wattage from the miner as an int.
 
         Returns:
             Wattage of the miner as an int.
         """
-        pass
+        return await self._get_wattage()
 
-    @abstractmethod
-    async def get_wattage_limit(self, *args, **kwargs) -> Optional[int]:
+    async def get_wattage_limit(self) -> Optional[int]:
         """Get wattage limit from the miner as an int.
 
         Returns:
             Wattage limit of the miner as an int.
         """
-        pass
+        return await self._get_wattage_limit()
 
-    @abstractmethod
-    async def get_fans(self, *args, **kwargs) -> List[Fan]:
+    async def get_fans(self) -> List[Fan]:
         """Get fan data from the miner in the form [fan_1, fan_2, fan_3, fan_4].
 
         Returns:
             A list of fan data.
         """
-        pass
+        return await self._get_fans()
 
-    @abstractmethod
-    async def get_fan_psu(self, *args, **kwargs) -> Optional[int]:
+    async def get_fan_psu(self) -> Optional[int]:
         """Get PSU fan speed from the miner.
 
         Returns:
             PSU fan speed.
         """
-        pass
+        return await self._get_fan_psu()
 
-    @abstractmethod
-    async def get_pools(self, *args, **kwargs) -> List[dict]:
-        """Get pool information from the miner.
-
-        Returns:
-            Pool groups and quotas in a list of dicts.
-        """
-        pass
-
-    @abstractmethod
-    async def get_errors(self, *args, **kwargs) -> List[MinerErrorData]:
+    async def get_errors(self) -> List[MinerErrorData]:
         """Get a list of the errors the miner is experiencing.
 
         Returns:
             A list of error classes representing different errors.
         """
-        pass
+        return await self._get_errors()
 
-    @abstractmethod
-    async def get_fault_light(self, *args, **kwargs) -> bool:
+    async def get_fault_light(self) -> bool:
         """Check the status of the fault light and return on or off as a boolean.
 
         Returns:
             A boolean value where `True` represents on and `False` represents off.
         """
-        pass
+        return await self._get_fault_light()
 
-    @abstractmethod
-    async def get_nominal_hashrate(self, *args, **kwargs) -> Optional[float]:
+    async def get_expected_hashrate(self) -> Optional[float]:
         """Get the nominal hashrate from factory if available.
 
         Returns:
             A float value of nominal hashrate in TH/s.
         """
+        return await self._get_expected_hashrate()
+
+    async def is_mining(self) -> Optional[bool]:
+        """Check whether the miner is mining.
+
+        Returns:
+            A boolean value representing if the miner is mining.
+        """
+        return await self._is_mining()
+
+    async def get_uptime(self) -> Optional[int]:
+        """Get the uptime of the miner in seconds.
+
+        Returns:
+            The uptime of the miner in seconds.
+        """
+        return await self._get_uptime()
+
+    async def _get_mac(self) -> Optional[str]:
         pass
 
-    async def _get_data(self, allow_warning: bool, data_to_get: list = None) -> dict:
-        if not data_to_get:
-            # everything
-            data_to_get = [
-                "mac",
-                "model",
-                "api_ver",
-                "fw_ver",
-                "hostname",
-                "hashrate",
-                "nominal_hashrate",
-                "hashboards",
-                "env_temp",
-                "wattage",
-                "wattage_limit",
-                "fans",
-                "fan_psu",
-                "errors",
-                "fault_light",
-                "pools",
-            ]
-        api_params = []
-        web_params = []
-        gql = False
-        for data_name in data_to_get:
-            function = getattr(self, "get_" + data_name)
-            sig = inspect.signature(function)
-            for item in sig.parameters:
-                if item.startswith("api_"):
-                    command = item.replace("api_", "")
-                    api_params.append(command)
-                elif item.startswith("graphql_"):
-                    gql = True
-                elif item.startswith("web_"):
-                    web_params.append(item.replace("web_", ""))
-        api_params = list(set(api_params))
-        web_params = list(set(web_params))
-        miner_data = {}
-        command_data = await self.api.multicommand(
-            *api_params, allow_warning=allow_warning
-        )
-        if gql:
-            try:
-                gql_data = await self.send_graphql_query(  # noqa: bosminer only anyway
-                    "{bos {hostname}, bosminer{config{... on BosminerConfig{groups{pools{url, user}, strategy{... on QuotaStrategy {quota}}}}}, info{fans{name, rpm}, workSolver{realHashrate{mhs1M}, temperatures{degreesC}, power{limitW, approxConsumptionW}, childSolvers{name, realHashrate{mhs1M}, hwDetails{chips}, tuner{statusMessages}, temperatures{degreesC}}}}}}"
-                )
-            except APIError:
-                # hostname hates me
-                try:
-                    gql_data = await self.send_graphql_query(  # noqa: bosminer only anyway
-                        "{bosminer{config{... on BosminerConfig{groups{pools{url, user}, strategy{... on QuotaStrategy {quota}}}}}, info{fans{name, rpm}, workSolver{realHashrate{mhs1M}, temperatures{degreesC}, power{limitW, approxConsumptionW}, childSolvers{name, realHashrate{mhs1M}, hwDetails{chips}, tuner{statusMessages}, temperatures{degreesC}}}}}}"
-                    )
-                except APIError:
-                    # AGAIN???
-                    gql_data = None
+    async def _get_api_ver(self) -> Optional[str]:
+        pass
 
-        web_data = {}
-        for command in web_params:
-            data = await self.send_web_command(command)  # noqa: web only anyway
-            web_data[command] = data
-        for data_name in data_to_get:
-            function = getattr(self, "get_" + data_name)
-            sig = inspect.signature(function)
-            kwargs = {}
-            for arg_name in sig.parameters:
-                if arg_name.startswith("api_"):
+    async def _get_fw_ver(self) -> Optional[str]:
+        pass
+
+    async def _get_hostname(self) -> Optional[str]:
+        pass
+
+    async def _get_hashrate(self) -> Optional[float]:
+        pass
+
+    async def _get_hashboards(self) -> List[HashBoard]:
+        return []
+
+    async def _get_env_temp(self) -> Optional[float]:
+        pass
+
+    async def _get_wattage(self) -> Optional[int]:
+        pass
+
+    async def _get_wattage_limit(self) -> Optional[int]:
+        pass
+
+    async def _get_fans(self) -> List[Fan]:
+        return []
+
+    async def _get_fan_psu(self) -> Optional[int]:
+        pass
+
+    async def _get_errors(self) -> List[MinerErrorData]:
+        return []
+
+    async def _get_fault_light(self) -> Optional[bool]:
+        pass
+
+    async def _get_expected_hashrate(self) -> Optional[float]:
+        pass
+
+    async def _is_mining(self) -> Optional[bool]:
+        pass
+
+    async def _get_uptime(self) -> Optional[int]:
+        pass
+
+    async def _get_data(
+        self,
+        allow_warning: bool,
+        include: List[Union[str, DataOptions]] = None,
+        exclude: List[Union[str, DataOptions]] = None,
+    ) -> dict:
+        if include is not None:
+            include = [str(i) for i in include]
+        else:
+            # everything
+            include = [str(enum_value.value) for enum_value in DataOptions]
+
+        if exclude is not None:
+            for item in exclude:
+                if str(item) in include:
+                    include.remove(str(item))
+
+        api_multicommand = set()
+        web_multicommand = []
+        for data_name in include:
+            try:
+                fn_args = getattr(self.data_locations, data_name).kwargs
+                for arg in fn_args:
+                    if isinstance(arg, RPCAPICommand):
+                        api_multicommand.add(arg.cmd)
+                    if isinstance(arg, WebAPICommand):
+                        if arg.cmd not in web_multicommand:
+                            web_multicommand.append(arg.cmd)
+            except KeyError as e:
+                logger.error(e, data_name)
+                continue
+
+        if len(api_multicommand) > 0:
+            api_command_task = asyncio.create_task(
+                self.api.multicommand(*api_multicommand, allow_warning=allow_warning)
+            )
+        else:
+            api_command_task = asyncio.sleep(0)
+        if len(web_multicommand) > 0:
+            web_command_task = asyncio.create_task(
+                self.web.multicommand(*web_multicommand, allow_warning=allow_warning)
+            )
+        else:
+            web_command_task = asyncio.sleep(0)
+
+        web_command_data = await web_command_task
+        if web_command_data is None:
+            web_command_data = {}
+
+        api_command_data = await api_command_task
+        if api_command_data is None:
+            api_command_data = {}
+
+        miner_data = {}
+
+        for data_name in include:
+            try:
+                fn_args = getattr(self.data_locations, data_name).kwargs
+                args_to_send = {k.name: None for k in fn_args}
+                for arg in fn_args:
                     try:
-                        kwargs[arg_name] = command_data[arg_name.replace("api_", "")][0]
-                    except (KeyError, IndexError):
-                        kwargs[arg_name] = None
-                elif arg_name.startswith("graphql_"):
-                    kwargs[
-                        arg_name
-                    ] = gql_data  # noqa: variable is not referenced before assignment
-                elif arg_name.startswith("web_"):
-                    try:
-                        kwargs[arg_name] = web_data[arg_name.replace("web_", "")]
-                    except (KeyError, IndexError):
-                        kwargs[arg_name] = None
-            if not data_name == "pools":
-                miner_data[data_name] = await function(**kwargs)
-            else:
-                pools_data = await function(**kwargs)
-                if pools_data:
-                    miner_data["pool_1_url"] = pools_data[0]["pool_1_url"]
-                    miner_data["pool_1_user"] = pools_data[0]["pool_1_user"]
-                    if len(pools_data) > 1:
-                        miner_data["pool_2_url"] = pools_data[1]["pool_2_url"]
-                        miner_data["pool_2_user"] = pools_data[1]["pool_2_user"]
-                        miner_data[
-                            "pool_split"
-                        ] = f"{pools_data[0]['quota']}/{pools_data[1]['quota']}"
-                    else:
-                        try:
-                            miner_data["pool_2_url"] = pools_data[0]["pool_2_url"]
-                            miner_data["pool_2_user"] = pools_data[0]["pool_2_user"]
-                            miner_data["quota"] = "0"
-                        except KeyError:
-                            pass
+                        if isinstance(arg, RPCAPICommand):
+                            if api_command_data.get("multicommand"):
+                                args_to_send[arg.name] = api_command_data[arg.cmd][0]
+                            else:
+                                args_to_send[arg.name] = api_command_data
+                        if isinstance(arg, WebAPICommand):
+                            if web_command_data is not None:
+                                if web_command_data.get("multicommand"):
+                                    args_to_send[arg.name] = web_command_data[arg.cmd]
+                                else:
+                                    if not web_command_data == {"multicommand": False}:
+                                        args_to_send[arg.name] = web_command_data
+                    except LookupError:
+                        args_to_send[arg.name] = None
+            except LookupError:
+                continue
+            try:
+                function = getattr(self, getattr(self.data_locations, data_name).cmd)
+                miner_data[data_name] = await function(**args_to_send)
+            except Exception as e:
+                raise APIError(
+                    f"Failed to call {data_name} on {self} while getting data."
+                ) from e
         return miner_data
 
     async def get_data(
-        self, allow_warning: bool = False, data_to_get: list = None
+        self,
+        allow_warning: bool = False,
+        include: List[Union[str, DataOptions]] = None,
+        exclude: List[Union[str, DataOptions]] = None,
     ) -> MinerData:
         """Get data from the miner in the form of [`MinerData`][pyasic.data.MinerData].
 
         Parameters:
             allow_warning: Allow warning when an API command fails.
-            data_to_get: Names of data items you want to gather. Defaults to all data.
+            include: Names of data items you want to gather. Defaults to all data.
+            exclude: Names of data items to exclude.  Exclusion happens after considering included items.
 
         Returns:
             A [`MinerData`][pyasic.data.MinerData] instance containing data from the miner.
@@ -454,20 +466,46 @@ class BaseMiner(ABC):
         data = MinerData(
             ip=str(self.ip),
             make=self.make,
-            ideal_chips=self.nominal_chips * self.ideal_hashboards,
-            ideal_hashboards=self.ideal_hashboards,
+            model=self.model,
+            expected_chips=(
+                self.expected_chips * self.expected_hashboards
+                if self.expected_chips is not None
+                else 0
+            ),
+            expected_hashboards=self.expected_hashboards,
             hashboards=[
-                HashBoard(slot=i, expected_chips=self.nominal_chips)
-                for i in range(self.ideal_hashboards)
+                HashBoard(slot=i, expected_chips=self.expected_chips)
+                for i in range(self.expected_hashboards)
             ],
         )
 
-        gathered_data = await self._get_data(allow_warning, data_to_get=data_to_get)
+        gathered_data = await self._get_data(
+            allow_warning=allow_warning, include=include, exclude=exclude
+        )
         for item in gathered_data:
             if gathered_data[item] is not None:
                 setattr(data, item, gathered_data[item])
 
         return data
+
+
+class BaseMiner(MinerProtocol):
+    def __init__(self, ip: str) -> None:
+        self.ip = ip
+
+        if self.expected_chips is None and self.raw_model is not None:
+            warnings.warn(
+                f"Unknown chip count for miner type {self.raw_model}, "
+                f"please open an issue on GitHub (https://github.com/UpstreamData/pyasic)."
+            )
+
+        # interfaces
+        if self._rpc_cls is not None:
+            self.rpc = self._rpc_cls(ip)
+        if self._web_cls is not None:
+            self.web = self._web_cls(ip)
+        if self._ssh_cls is not None:
+            self.ssh = self._ssh_cls(ip)
 
 
 AnyMiner = TypeVar("AnyMiner", bound=BaseMiner)

@@ -14,21 +14,17 @@
 #  limitations under the License.                                              -
 # ------------------------------------------------------------------------------
 
-from pyasic.miners._backends import BTMiner  # noqa - Ignore access to _module
-from pyasic.miners._types import (  # noqa - Ignore access to _module
-    M33V10,
-    M33V20,
-    M33V30,
-)
+from pyasic.miners.backends import M3X
+from pyasic.miners.models import M33V10, M33V20, M33V30
 
 
-class BTMinerM33V10(BTMiner, M33V10):
+class BTMinerM33V10(M3X, M33V10):
     pass
 
 
-class BTMinerM33V20(BTMiner, M33V20):
+class BTMinerM33V20(M3X, M33V20):
     pass
 
 
-class BTMinerM33V30(BTMiner, M33V30):
+class BTMinerM33V30(M3X, M33V30):
     pass

@@ -14,11 +14,22 @@
 #  limitations under the License.                                              -
 # ------------------------------------------------------------------------------
 
-from .S19 import BMMinerS19
-from .S19_Pro import BMMinerS19Pro
-from .S19_XP import BMMinerS19XP
-from .S19a import BMMinerS19a
-from .S19a_Pro import BMMinerS19aPro
-from .S19j import BMMinerS19j
-from .S19j_Pro import BMMinerS19jPro
+from .S19 import (
+    BMMinerS19,
+    BMMinerS19a,
+    BMMinerS19aPro,
+    BMMinerS19Hydro,
+    BMMinerS19i,
+    BMMinerS19j,
+    BMMinerS19jNoPIC,
+    BMMinerS19jPro,
+    BMMinerS19L,
+    BMMinerS19Plus,
+    BMMinerS19Pro,
+    BMMinerS19ProHydro,
+    BMMinerS19ProPlus,
+    BMMinerS19ProPlusHydro,
+    BMMinerS19XP,
+    BMMinerS19KPro,
+)
 from .T19 import BMMinerT19

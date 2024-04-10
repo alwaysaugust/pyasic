@@ -13,16 +13,11 @@
 #  See the License for the specific language governing permissions and         -
 #  limitations under the License.                                              -
 # ------------------------------------------------------------------------------
-from pyasic.API import APIError
+from __future__ import annotations
 
+from copy import deepcopy
 
-class Singleton(type):
-    _instances = {}
-
-    def __call__(cls, *args, **kwargs):
-        if cls not in cls._instances:
-            cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
-        return cls._instances[cls]
+from pyasic.errors import APIError
 
 
 def api_min_version(version: str):
@@ -50,14 +45,16 @@ def api_min_version(version: str):
 
                 if not api_major_ver >= allowed_major_ver:
                     raise APIError(
-                        f"Miner API version v{api_major_ver}.{api_minor_ver}.{api_patch_ver} is too low for {func.__name__}, required version is at least v{version}"
+                        f"Miner API version v{api_major_ver}.{api_minor_ver}.{api_patch_ver}"
+                        f" is too low for {func.__name__}, required version is at least v{version}"
                     )
                 if not (
                     api_minor_ver >= allowed_minor_ver
                     and api_major_ver == allowed_major_ver
                 ):
                     raise APIError(
-                        f"Miner API version v{api_major_ver}.{api_minor_ver}.{api_patch_ver} is too low for {func.__name__}, required version is at least v{version}"
+                        f"Miner API version v{api_major_ver}.{api_minor_ver}.{api_patch_ver}"
+                        f" is too low for {func.__name__}, required version is at least v{version}"
                     )
                 if not (
                     api_patch_ver >= allowed_patch_ver
@@ -65,7 +62,8 @@ def api_min_version(version: str):
                     and api_major_ver == allowed_major_ver
                 ):
                     raise APIError(
-                        f"Miner API version v{api_major_ver}.{api_minor_ver}.{api_patch_ver} is too low for {func.__name__}, required version is at least v{version}"
+                        f"Miner API version v{api_major_ver}.{api_minor_ver}.{api_patch_ver} "
+                        f"is too low for {func.__name__}, required version is at least v{version}"
                     )
 
             return await func(*args, **kwargs)
@@ -73,3 +71,40 @@ def api_min_version(version: str):
         return inner
 
     return decorator
+
+
+def merge_dicts(a: dict, b: dict) -> dict:
+    result = deepcopy(a)
+    for b_key, b_val in b.items():
+        a_val = result.get(b_key)
+        if isinstance(a_val, dict) and isinstance(b_val, dict):
+            result[b_key] = merge_dicts(a_val, b_val)
+        else:
+            result[b_key] = deepcopy(b_val)
+    return result
+
+
+def validate_command_output(data: dict) -> tuple[bool, str | None]:
+    if "STATUS" in data.keys():
+        status = data["STATUS"]
+        if isinstance(status, str):
+            if status in ["RESTART"]:
+                return True, None
+            status = data
+        if isinstance(status, list):
+            status = status[0]
+
+        if status.get("STATUS") in ["S", "I"]:
+            return True, None
+        else:
+            return False, status.get("Msg", "Unknown error")
+    else:
+        for key in data.keys():
+            # make sure not to try to turn id into a dict
+            if key == "id":
+                continue
+            if "STATUS" in data[key][0].keys():
+                if data[key][0]["STATUS"][0]["STATUS"] not in ["S", "I"]:
+                    # this is an error
+                    return False, f"{key}: " + data[key][0]["STATUS"][0]["Msg"]
+        return True, None

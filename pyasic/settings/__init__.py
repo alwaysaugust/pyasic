@@ -13,27 +13,54 @@
 #  See the License for the specific language governing permissions and         -
 #  limitations under the License.                                              -
 # ------------------------------------------------------------------------------
+import socket
+import struct
+from ssl import SSLContext
+from typing import Any, Union
 
-from dataclasses import dataclass
+import httpx
+from httpx import AsyncHTTPTransport
 
-from pyasic.misc import Singleton
+_settings = {  # defaults
+    "network_ping_retries": 1,
+    "network_ping_timeout": 3,
+    "factory_get_retries": 1,
+    "factory_get_timeout": 3,
+    "get_data_retries": 1,
+    "api_function_timeout": 5,
+    "antminer_mining_mode_as_str": False,
+    "default_whatsminer_rpc_password": "admin",
+    "default_innosilicon_web_password": "admin",
+    "default_antminer_web_password": "root",
+    "default_bosminer_web_password": "root",
+    "default_vnish_web_password": "admin",
+    "default_goldshell_web_password": "123456789",
+    "default_auradine_web_password": "admin",
+    "default_epic_web_password": "letmein",
+    "default_hive_web_password": "admin",
+    "default_antminer_ssh_password": "miner",
+    "default_bosminer_ssh_password": "root",
+    "socket_linger_time": 1000,
+}
 
 
-@dataclass
-class PyasicSettings(metaclass=Singleton):
-    network_ping_retries: int = 1
-    network_ping_timeout: int = 3
-    network_scan_threads: int = 300
+ssl_cxt = httpx.create_ssl_context()
 
-    miner_factory_get_version_retries: int = 1
+#this function configures socket options like SO_LINGER and returns an AsyncHTTPTransport instance to perform asynchronous HTTP requests 
+#using those options.
+#SO_LINGER controls what happens when you close a socket with unsent data - it allows specifying linger time for the data to be sent. 
+def transport(verify: Union[str, bool, SSLContext] = ssl_cxt):
+    l_onoff = 1
+    l_linger = get("so_linger_time", 1000)
 
-    miner_get_data_retries: int = 1
+    opts = [(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", l_onoff, l_linger))]
 
-    global_whatsminer_password = "admin"
-    global_innosilicon_password = "admin"
-    global_x19_password = "root"
-    global_x17_password = "root"
-    global_vnish_password = "admin"
+    return AsyncHTTPTransport(socket_options=opts, verify=verify)
 
-    debug: bool = False
-    logfile: bool = False
+
+def get(key: str, other: Any = None) -> Any:
+    return _settings.get(key, other)
+
+
+def update(key: str, val: Any) -> Any:
+    _settings[key] = val

@@ -14,8 +14,17 @@
 #  limitations under the License.                                              -
 # ------------------------------------------------------------------------------
 
-from .S19 import BOSMinerS19
-from .S19_Pro import BOSMinerS19Pro
-from .S19j import BOSMinerS19j
-from .S19j_Pro import BOSMinerS19jPro
+from .S19 import (
+    BOSMinerS19,
+    BOSMinerS19a,
+    BOSMinerS19aPro,
+    BOSMinerS19j,
+    BOSMinerS19jNoPIC,
+    BOSMinerS19jPro,
+    BOSMinerS19jProPlus,
+    BOSMinerS19kProNoPIC,
+    BOSMinerS19Plus,
+    BOSMinerS19Pro,
+    BOSMinerS19XP,
+)
 from .T19 import BOSMinerT19

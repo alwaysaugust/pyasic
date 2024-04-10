@@ -14,6 +14,6 @@
 #  limitations under the License.                                              -
 # ------------------------------------------------------------------------------
 
-from .S9 import BMMinerS9
-from .S9i import BMMinerS9i
+from .E9 import BMMinerE9Pro
+from .S9 import BMMinerS9, BMMinerS9i, BMMinerS9j
 from .T9 import BMMinerT9

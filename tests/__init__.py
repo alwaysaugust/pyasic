@@ -14,9 +14,9 @@
 #  limitations under the License.                                              -
 # ------------------------------------------------------------------------------
 
-import unittest
-
-from tests.miners_tests import MinerFactoryTest, MinersTest
+from tests.rpc_tests import *
+from tests.config_tests import TestConfig
+from tests.miners_tests import MinersTest
 from tests.network_tests import NetworkTest
 
 if __name__ == "__main__":

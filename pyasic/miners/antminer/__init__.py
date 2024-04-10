@@ -17,5 +17,7 @@
 from .bmminer import *
 from .bosminer import *
 from .cgminer import *
+from .epic import *
 from .hiveon import *
+from .luxos import *
 from .vnish import *

@@ -15,17 +15,12 @@
 # ------------------------------------------------------------------------------
 
 import asyncio
-import logging
 from typing import List, Union
 
-# from pyasic.errors import PhaseBalancingError
 from pyasic.errors import APIError
 from pyasic.miners import AnyMiner
-from pyasic.miners._backends import X19, BOSMiner, BTMiner
-from pyasic.miners._types import S9, S17, T17, S17e, S17Plus, S17Pro, T17e, T17Plus
-
-# from pprint import pprint as print
-
+from pyasic.miners.backends import AntminerModern, BOSMiner, BTMiner
+from pyasic.miners.models import S9, S17, T17, S17e, S17Plus, S17Pro, T17e, T17Plus
 
 FAN_USAGE = 50  # 50 W per fan
 
@@ -71,14 +66,14 @@ class _MinerPhaseBalancer:
             str(miner.ip): {
                 "miner": miner,
                 "set": 0,
-                "min": miner.fan_count * FAN_USAGE,
+                "min": miner.expected_fans * FAN_USAGE,
             }
             for miner in miners
         }
         for miner in miners:
             if (
                 isinstance(miner, BTMiner)
-                and not (miner.model.startswith("M2") if miner.model else True)
+                and not (miner.raw_model.startswith("M2") if miner.raw_model else True)
             ) or isinstance(miner, BOSMiner):
                 if isinstance(miner, S9):
                     self.miners[str(miner.ip)]["tune"] = True
@@ -95,7 +90,7 @@ class _MinerPhaseBalancer:
                     self.miners[str(miner.ip)]["tune"] = True
                     self.miners[str(miner.ip)]["shutdown"] = True
                     self.miners[str(miner.ip)]["max"] = 3600
-            elif isinstance(miner, X19):
+            elif isinstance(miner, AntminerModern):
                 self.miners[str(miner.ip)]["tune"] = False
                 self.miners[str(miner.ip)]["shutdown"] = True
                 self.miners[str(miner.ip)]["max"] = 3600
@@ -103,8 +98,8 @@ class _MinerPhaseBalancer:
                 self.miners[str(miner.ip)]["tune"] = False
                 self.miners[str(miner.ip)]["shutdown"] = True
                 self.miners[str(miner.ip)]["max"] = 3600
-                if miner.model:
-                    if miner.model.startswith("M2"):
+                if miner.raw_model:
+                    if miner.raw_model.startswith("M2"):
                         self.miners[str(miner.ip)]["tune"] = False
                         self.miners[str(miner.ip)]["shutdown"] = True
                         self.miners[str(miner.ip)]["max"] = 2400
@@ -135,23 +130,29 @@ class _MinerPhaseBalancer:
 
     async def get_balance_setpoints(self, wattage: int) -> dict:
         # gather data needed to optimize shutdown only miners
-        dp = ["hashrate", "wattage", "wattage_limit"]
+        dp = ["hashrate", "wattage", "wattage_limit", "hashboards"]
         data = await asyncio.gather(
             *[
                 self.miners[miner]["miner"].get_data(data_to_get=dp)
                 for miner in self.miners
             ]
         )
+        pct_expected_list = [d.percent_ideal for d in data]
+        pct_ideal = 0
+        if len(pct_expected_list) > 0:
+            pct_ideal = sum(pct_expected_list) / len(pct_expected_list)
+
+        wattage = round(wattage * 1 / (pct_ideal / 100))
 
         for data_point in data:
             if (not self.miners[data_point.ip]["tune"]) and (
                 not self.miners[data_point.ip]["shutdown"]
             ):
                 # cant do anything with it so need to find a semi-accurate power limit
-                if not data_point.wattage_limit == -1:
+                if data_point.wattage_limit is not None:
                     self.miners[data_point.ip]["max"] = int(data_point.wattage_limit)
                     self.miners[data_point.ip]["min"] = int(data_point.wattage_limit)
-                elif not data_point.wattage == -1:
+                elif data_point.wattage is not None:
                     self.miners[data_point.ip]["max"] = int(data_point.wattage)
                     self.miners[data_point.ip]["min"] = int(data_point.wattage)
 
@@ -182,13 +183,19 @@ class _MinerPhaseBalancer:
                 if (not miner["tune"]) and (miner["shutdown"])
             ]
         )
-        # min_other_wattage = sum([miner["min"] for miner in self.miners.values() if (not miner["tune"]) and (not miner["shutdown"])])
+        # min_other_wattage = sum(
+        #     [
+        #         miner["min"]
+        #         for miner in self.miners.values()
+        #         if (not miner["tune"]) and (not miner["shutdown"])
+        #     ]
+        # )
 
         # make sure wattage isnt set too high
         if wattage > (max_tune_wattage + max_shutdown_wattage + max_other_wattage):
             raise APIError(
                 f"Wattage setpoint is too high, setpoint: {wattage}W, max: {max_tune_wattage + max_shutdown_wattage + max_other_wattage}W"
-            )  # PhaseBalancingError(f"Wattage setpoint is too high, setpoint: {wattage}W, max: {max_tune_wattage + max_shutdown_wattage + max_other_wattage}W")
+            )
 
         # should now know wattage limits and which can be tuned/shutdown
         # check if 1/2 max of the miners which can be tuned is low enough

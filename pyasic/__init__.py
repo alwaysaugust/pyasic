@@ -13,45 +13,12 @@
 #  See the License for the specific language governing permissions and         -
 #  limitations under the License.                                              -
 # ------------------------------------------------------------------------------
-from pyasic.API.bmminer import BMMinerAPI
-from pyasic.API.bosminer import BOSMinerAPI
-from pyasic.API.btminer import BTMinerAPI
-from pyasic.API.cgminer import CGMinerAPI
-from pyasic.API.unknown import UnknownAPI
+from pyasic import settings
 from pyasic.config import MinerConfig
-from pyasic.data import (
-    BraiinsOSError,
-    InnosiliconError,
-    MinerData,
-    WhatsminerError,
-    X19Error,
-)
+from pyasic.data import MinerData
 from pyasic.errors import APIError, APIWarning
-from pyasic.miners import get_miner
-from pyasic.miners.base import AnyMiner
-from pyasic.miners.miner_factory import MinerFactory
-from pyasic.miners.miner_listener import MinerListener
+from pyasic.miners import *
 from pyasic.network import MinerNetwork
-from pyasic.settings import PyasicSettings
-
-__all__ = [
-    "BMMinerAPI",
-    "BOSMinerAPI",
-    "BTMinerAPI",
-    "CGMinerAPI",
-    "UnknownAPI",
-    "MinerConfig",
-    "MinerData",
-    "BraiinsOSError",
-    "InnosiliconError",
-    "WhatsminerError",
-    "X19Error",
-    "APIError",
-    "APIWarning",
-    "get_miner",
-    "AnyMiner",
-    "MinerFactory",
-    "MinerListener",
-    "MinerNetwork",
-    "PyasicSettings",
-]
+from pyasic.rpc import *
+from pyasic.ssh import *
+from pyasic.web import *

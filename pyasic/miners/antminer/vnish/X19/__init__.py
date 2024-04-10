@@ -14,11 +14,14 @@
 #  limitations under the License.                                              -
 # ------------------------------------------------------------------------------
 
-from .S19 import VNishS19
-from .S19_Pro import VNishS19Pro
-from .S19_XP import VNishS19XP
-from .S19a import VNishS19a
-from .S19a_Pro import VNishS19aPro
-from .S19j import VNishS19j
-from .S19j_Pro import VNishS19jPro
+from .S19 import (
+    VNishS19,
+    VNishS19a,
+    VNishS19aPro,
+    VNishS19j,
+    VNishS19jPro,
+    VNishS19NoPIC,
+    VNishS19Pro,
+    VNishS19XP,
+)
 from .T19 import VNishT19

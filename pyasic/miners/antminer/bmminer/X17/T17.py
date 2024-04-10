@@ -14,10 +14,17 @@
 #  limitations under the License.                                              -
 # ------------------------------------------------------------------------------
 
-from pyasic.miners._types import T17  # noqa - Ignore access to _module
+from pyasic.miners.backends import AntminerOld
+from pyasic.miners.models import T17, T17e, T17Plus
 
-from .X17 import BMMinerX17
+
+class BMMinerT17(AntminerOld, T17):
+    pass
 
 
-class BMMinerT17(BMMinerX17, T17):
+class BMMinerT17Plus(AntminerOld, T17Plus):
+    pass
+
+
+class BMMinerT17e(AntminerOld, T17e):
     pass

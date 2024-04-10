@@ -16,47 +16,17 @@
 
 import copy
 import json
-import logging
 import time
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
-from typing import List, Union
+from typing import Any, List, Union
 
+from pyasic.config import MinerConfig
+from pyasic.config.mining import MiningModePowerTune
+
+from .boards import HashBoard
 from .error_codes import BraiinsOSError, InnosiliconError, WhatsminerError, X19Error
-
-
-@dataclass
-class HashBoard:
-    """A Dataclass to standardize hashboard data.
-
-    Attributes:
-        slot: The slot of the board as an int.
-        hashrate: The hashrate of the board in TH/s as a float.
-        temp: The temperature of the PCB as an int.
-        chip_temp: The temperature of the chips as an int.
-        chips: The chip count of the board as an int.
-        expected_chips: The ideal chip count of the board as an int.
-        missing: Whether the board is returned from the miners data as a bool.
-    """
-
-    slot: int = 0
-    hashrate: float = 0.0
-    temp: int = -1
-    chip_temp: int = -1
-    chips: int = 0
-    expected_chips: int = 0
-    missing: bool = True
-
-
-@dataclass
-class Fan:
-    """A Dataclass to standardize fan data.
-
-    Attributes:
-        speed: The speed of the fan.
-    """
-
-    speed: int = -1
+from .fans import Fan
 
 
 @dataclass
@@ -66,105 +36,90 @@ class MinerData:
     Attributes:
         ip: The IP of the miner as a str.
         datetime: The time and date this data was generated.
+        uptime: The uptime of the miner in seconds.
+        mac: The MAC address of the miner as a str.
         model: The model of the miner as a str.
         make: The make of the miner as a str.
         api_ver: The current api version on the miner as a str.
         fw_ver: The current firmware version on the miner as a str.
         hostname: The network hostname of the miner as a str.
-        hashrate: The hashrate of the miner in TH/s as a float.
-        nominal_hashrate: The factory nominal hashrate of the miner in TH/s as a float.
-        left_board_hashrate: The hashrate of the left board of the miner in TH/s as a float.
-        center_board_hashrate: The hashrate of the center board of the miner in TH/s as a float.
-        right_board_hashrate: The hashrate of the right board of the miner in TH/s as a float.
+        hashrate: The hashrate of the miner in TH/s as a float.  Calculated automatically.
+        _hashrate: Backup for hashrate found via API instead of hashboards.
+        expected_hashrate: The factory nominal hashrate of the miner in TH/s as a float.
+        hashboards: A list of [`HashBoard`][pyasic.data.HashBoard]s on the miner with their statistics.
         temperature_avg: The average temperature across the boards.  Calculated automatically.
         env_temp: The environment temps as a float.
-        left_board_temp: The temp of the left PCB as an int.
-        left_board_chip_temp: The temp of the left board chips as an int.
-        center_board_temp: The temp of the center PCB as an int.
-        center_board_chip_temp: The temp of the center board chips as an int.
-        right_board_temp: The temp of the right PCB as an int.
-        right_board_chip_temp: The temp of the right board chips as an int.
         wattage: Current power draw of the miner as an int.
         wattage_limit: Power limit of the miner as an int.
-        fan_1: The speed of the first fan as an int.
-        fan_2: The speed of the second fan as an int.
-        fan_3: The speed of the third fan as an int.
-        fan_4: The speed of the fourth fan as an int.
+        fans: A list of fans on the miner with their speeds.
         fan_psu: The speed of the PSU on the fan if the miner collects it.
-        left_chips: The number of chips online in the left board as an int.
-        center_chips: The number of chips online in the left board as an int.
-        right_chips: The number of chips online in the left board as an int.
         total_chips: The total number of chips on all boards.  Calculated automatically.
-        ideal_chips: The ideal number of chips in the miner as an int.
-        percent_ideal: The percent of total chips out of the ideal count.  Calculated automatically.
+        expected_chips: The expected number of chips in the miner as an int.
+        percent_expected_chips: The percent of total chips out of the expected count.  Calculated automatically.
+        percent_expected_hashrate: The percent of total hashrate out of the expected hashrate.  Calculated automatically.
+        percent_expected_wattage: The percent of total wattage out of the expected wattage.  Calculated automatically.
         nominal: Whether the number of chips in the miner is nominal.  Calculated automatically.
-        pool_split: The pool split as a str.
-        pool_1_url: The first pool url on the miner as a str.
-        pool_1_user: The first pool user on the miner as a str.
-        pool_2_url: The second pool url on the miner as a str.
-        pool_2_user: The second pool user on the miner as a str.
+        config: The parsed config of the miner, using [`MinerConfig`][pyasic.config.MinerConfig].
         errors: A list of errors on the miner.
-        fault_light: Whether or not the fault light is on as a boolean.
+        fault_light: Whether the fault light is on as a boolean.
         efficiency: Efficiency of the miner in J/TH (Watts per TH/s).  Calculated automatically.
+        is_mining: Whether the miner is mining.
     """
 
     ip: str
     datetime: datetime = None
-    mac: str = "00:00:00:00:00:00"
-    model: str = "Unknown"
-    make: str = "Unknown"
-    api_ver: str = "Unknown"
-    fw_ver: str = "Unknown"
-    hostname: str = "Unknown"
-    hashrate: float = 0
-    nominal_hashrate: float = 0
+    uptime: int = None
+    mac: str = None
+    model: str = None
+    make: str = None
+    api_ver: str = None
+    fw_ver: str = None
+    hostname: str = None
+    hashrate: float = field(init=False)
+    _hashrate: float = field(repr=False, default=None)
+    expected_hashrate: float = None
     hashboards: List[HashBoard] = field(default_factory=list)
-    ideal_hashboards: int = 1
-    left_board_hashrate: float = field(init=False)
-    center_board_hashrate: float = field(init=False)
-    right_board_hashrate: float = field(init=False)
+    expected_hashboards: int = None
     temperature_avg: int = field(init=False)
-    env_temp: float = -1.0
-    left_board_temp: int = field(init=False)
-    left_board_chip_temp: int = field(init=False)
-    center_board_temp: int = field(init=False)
-    center_board_chip_temp: int = field(init=False)
-    right_board_temp: int = field(init=False)
-    right_board_chip_temp: int = field(init=False)
-    wattage: int = -1
-    wattage_limit: int = -1
+    env_temp: float = None
+    wattage: int = None
+    wattage_limit: int = field(init=False)
+    _wattage_limit: int = field(repr=False, default=None)
     fans: List[Fan] = field(default_factory=list)
-    fan_1: int = field(init=False)
-    fan_2: int = field(init=False)
-    fan_3: int = field(init=False)
-    fan_4: int = field(init=False)
-    fan_psu: int = -1
-    left_chips: int = field(init=False)
-    center_chips: int = field(init=False)
-    right_chips: int = field(init=False)
+    fan_psu: int = None
     total_chips: int = field(init=False)
-    ideal_chips: int = 1
-    percent_ideal: float = field(init=False)
-    nominal: int = field(init=False)
-    pool_split: str = "0"
-    pool_1_url: str = "Unknown"
-    pool_1_user: str = "Unknown"
-    pool_2_url: str = ""
-    pool_2_user: str = ""
-    errors: List[
-        Union[WhatsminerError, BraiinsOSError, X19Error, InnosiliconError]
-    ] = field(default_factory=list)
+    expected_chips: int = None
+    percent_expected_chips: float = field(init=False)
+    percent_expected_hashrate: float = field(init=False)
+    percent_expected_wattage: float = field(init=False)
+    nominal: bool = field(init=False)
+    config: MinerConfig = None
+    errors: List[Union[WhatsminerError, BraiinsOSError, X19Error, InnosiliconError]] = field(default_factory=list)
     fault_light: Union[bool, None] = None
     efficiency: int = field(init=False)
+    is_mining: bool = True
 
     @classmethod
     def fields(cls):
-        return [f.name for f in fields(cls)]
+        return [f.name for f in fields(cls) if not f.name.startswith("_")]
+
+    @staticmethod
+    def dict_factory(x):
+        return {k: v for (k, v) in x if not k.startswith("_")}
 
     def __post_init__(self):
         self.datetime = datetime.now(timezone.utc).astimezone()
 
-    def __getitem__(self, item):
+    def get(self, __key: str, default: Any = None):
+        try:
+            val = self.__getitem__(__key)
+            if val is None:
+                return default
+            return val
+        except KeyError:
+            return default
+
+    def __getitem__(self, item: str):
         try:
             return getattr(self, item)
         except AttributeError:
@@ -214,201 +169,90 @@ class MinerData:
         return cp
 
     @property
-    def fan_1(self):  # noqa - Skip PyCharm inspection
-        if len(self.fans) > 0:
-            return self.fans[0].speed
+    def hashrate(self):  # noqa - Skip PyCharm inspection
+        if len(self.hashboards) > 0:
+            hr_data = []
+            for item in self.hashboards:
+                if item.hashrate is not None:
+                    hr_data.append(item.hashrate)
+            if len(hr_data) > 0:
+                return round(sum(hr_data), 2)
+        return self._hashrate
 
-    @fan_1.setter
-    def fan_1(self, val):
-        pass
-
-    @property
-    def fan_2(self):  # noqa - Skip PyCharm inspection
-        if len(self.fans) > 1:
-            return self.fans[1].speed
-
-    @fan_2.setter
-    def fan_2(self, val):
-        pass
+    @hashrate.setter
+    def hashrate(self, val):
+        self._hashrate = val
 
     @property
-    def fan_3(self):  # noqa - Skip PyCharm inspection
-        if len(self.fans) > 2:
-            return self.fans[2].speed
+    def wattage_limit(self):  # noqa - Skip PyCharm inspection
+        if self.config is not None:
+            if isinstance(self.config.mining_mode, MiningModePowerTune):
+                return self.config.mining_mode.power
+        return self._wattage_limit
 
-    @fan_3.setter
-    def fan_3(self, val):
-        pass
-
-    @property
-    def fan_4(self):  # noqa - Skip PyCharm inspection
-        if len(self.fans) > 3:
-            return self.fans[3].speed
-
-    @fan_4.setter
-    def fan_4(self, val):
-        pass
+    @wattage_limit.setter
+    def wattage_limit(self, val: int):
+        self._wattage_limit = val
 
     @property
     def total_chips(self):  # noqa - Skip PyCharm inspection
-        return sum([hb.chips for hb in self.hashboards])
+        if len(self.hashboards) > 0:
+            chip_data = []
+            for item in self.hashboards:
+                if item.chips is not None:
+                    chip_data.append(item.chips)
+            if len(chip_data) > 0:
+                return sum(chip_data)
+            return None
 
     @total_chips.setter
     def total_chips(self, val):
         pass
 
     @property
-    def left_chips(self):  # noqa - Skip PyCharm inspection
-        if len(self.hashboards) in [2, 3]:
-            return self.hashboards[0].chips
-        return 0
-
-    @left_chips.setter
-    def left_chips(self, val):
-        pass
-
-    @property
-    def center_chips(self):  # noqa - Skip PyCharm inspection
-        if len(self.hashboards) == 1:
-            return self.hashboards[0].chips
-        if len(self.hashboards) == 3:
-            return self.hashboards[1].chips
-        return 0
-
-    @center_chips.setter
-    def center_chips(self, val):
-        pass
-
-    @property
-    def right_chips(self):  # noqa - Skip PyCharm inspection
-        if len(self.hashboards) == 2:
-            return self.hashboards[1].chips
-        if len(self.hashboards) == 3:
-            return self.hashboards[2].chips
-        return 0
-
-    @right_chips.setter
-    def right_chips(self, val):
-        pass
-
-    @property
-    def left_board_hashrate(self):  # noqa - Skip PyCharm inspection
-        if len(self.hashboards) in [2, 3]:
-            return self.hashboards[0].hashrate
-        return 0
-
-    @left_board_hashrate.setter
-    def left_board_hashrate(self, val):
-        pass
-
-    @property
-    def center_board_hashrate(self):  # noqa - Skip PyCharm inspection
-        if len(self.hashboards) == 1:
-            return self.hashboards[0].hashrate
-        if len(self.hashboards) == 3:
-            return self.hashboards[1].hashrate
-        return 0
-
-    @center_board_hashrate.setter
-    def center_board_hashrate(self, val):
-        pass
-
-    @property
-    def right_board_hashrate(self):  # noqa - Skip PyCharm inspection
-        if len(self.hashboards) == 2:
-            return self.hashboards[1].hashrate
-        if len(self.hashboards) == 3:
-            return self.hashboards[2].hashrate
-        return 0
-
-    @right_board_hashrate.setter
-    def right_board_hashrate(self, val):
-        pass
-
-    @property
-    def left_board_temp(self):  # noqa - Skip PyCharm inspection
-        if len(self.hashboards) in [2, 3]:
-            return self.hashboards[0].temp
-        return 0
-
-    @left_board_temp.setter
-    def left_board_temp(self, val):
-        pass
-
-    @property
-    def center_board_temp(self):  # noqa - Skip PyCharm inspection
-        if len(self.hashboards) == 1:
-            return self.hashboards[0].temp
-        if len(self.hashboards) == 3:
-            return self.hashboards[1].temp
-        return 0
-
-    @center_board_temp.setter
-    def center_board_temp(self, val):
-        pass
-
-    @property
-    def right_board_temp(self):  # noqa - Skip PyCharm inspection
-        if len(self.hashboards) == 2:
-            return self.hashboards[1].temp
-        if len(self.hashboards) == 3:
-            return self.hashboards[2].temp
-        return 0
-
-    @right_board_temp.setter
-    def right_board_temp(self, val):
-        pass
-
-    @property
-    def left_board_chip_temp(self):  # noqa - Skip PyCharm inspection
-        if len(self.hashboards) in [2, 3]:
-            return self.hashboards[0].chip_temp
-        return 0
-
-    @left_board_chip_temp.setter
-    def left_board_chip_temp(self, val):
-        pass
-
-    @property
-    def center_board_chip_temp(self):  # noqa - Skip PyCharm inspection
-        if len(self.hashboards) == 1:
-            return self.hashboards[0].chip_temp
-        if len(self.hashboards) == 3:
-            return self.hashboards[1].chip_temp
-        return 0
-
-    @center_board_chip_temp.setter
-    def center_board_chip_temp(self, val):
-        pass
-
-    @property
-    def right_board_chip_temp(self):  # noqa - Skip PyCharm inspection
-        if len(self.hashboards) == 2:
-            return self.hashboards[1].chip_temp
-        if len(self.hashboards) == 3:
-            return self.hashboards[2].chip_temp
-        return 0
-
-    @right_board_chip_temp.setter
-    def right_board_chip_temp(self, val):
-        pass
-
-    @property
     def nominal(self):  # noqa - Skip PyCharm inspection
-        return self.ideal_chips == self.total_chips
+        if self.total_chips is None or self.expected_chips is None:
+            return None
+        return self.expected_chips == self.total_chips
 
     @nominal.setter
     def nominal(self, val):
         pass
 
     @property
-    def percent_ideal(self):  # noqa - Skip PyCharm inspection
-        if self.total_chips == 0 or self.ideal_chips == 0:
+    def percent_expected_chips(self):  # noqa - Skip PyCharm inspection
+        if self.total_chips is None or self.expected_chips is None:
+            return None
+        if self.total_chips == 0 or self.expected_chips == 0:
             return 0
-        return round((self.total_chips / self.ideal_chips) * 100)
+        return round((self.total_chips / self.expected_chips) * 100)
 
-    @percent_ideal.setter
-    def percent_ideal(self, val):
+    @percent_expected_chips.setter
+    def percent_expected_chips(self, val):
+        pass
+
+    @property
+    def percent_expected_hashrate(self):  # noqa - Skip PyCharm inspection
+        if self.hashrate is None or self.expected_hashrate is None:
+            return None
+        if self.hashrate == 0 or self.expected_hashrate == 0:
+            return 0
+        return round((self.hashrate / self.expected_hashrate) * 100)
+
+    @percent_expected_hashrate.setter
+    def percent_expected_hashrate(self, val):
+        pass
+
+    @property
+    def percent_expected_wattage(self):  # noqa - Skip PyCharm inspection
+        if self.wattage_limit is None or self.wattage is None:
+            return None
+        if self.wattage_limit == 0 or self.wattage == 0:
+            return 0
+        return round((self.wattage / self.wattage_limit) * 100)
+
+    @percent_expected_wattage.setter
+    def percent_expected_wattage(self, val):
         pass
 
     @property
@@ -416,11 +260,11 @@ class MinerData:
         total_temp = 0
         temp_count = 0
         for hb in self.hashboards:
-            if hb.temp and not hb.temp == -1:
+            if hb.temp is not None:
                 total_temp += hb.temp
                 temp_count += 1
         if not temp_count > 0:
-            return 0
+            return None
         return round(total_temp / temp_count)
 
     @temperature_avg.setter
@@ -429,7 +273,9 @@ class MinerData:
 
     @property
     def efficiency(self):  # noqa - Skip PyCharm inspection
-        if self.hashrate == 0:
+        if self.hashrate is None or self.wattage is None:
+            return None
+        if self.hashrate == 0 or self.wattage == 0:
             return 0
         return round(self.wattage / self.hashrate)
 
@@ -438,13 +284,15 @@ class MinerData:
         pass
 
     def asdict(self) -> dict:
+        return asdict(self, dict_factory=self.dict_factory)
+
+    def as_dict(self) -> dict:
         """Get this dataclass as a dictionary.
 
         Returns:
             A dictionary version of this class.
         """
-        logging.debug(f"MinerData - (To Dict) - Dumping Dict data")
-        return asdict(self)
+        return self.asdict()
 
     def as_json(self) -> str:
         """Get this dataclass as JSON.
@@ -452,7 +300,6 @@ class MinerData:
         Returns:
             A JSON version of this class.
         """
-        logging.debug(f"MinerData - (To JSON) - Dumping JSON data")
         data = self.asdict()
         data["datetime"] = str(int(time.mktime(data["datetime"].timetuple())))
         return json.dumps(data)
@@ -463,7 +310,6 @@ class MinerData:
         Returns:
             A CSV version of this class with no headers.
         """
-        logging.debug(f"MinerData - (To CSV) - Dumping CSV data")
         data = self.asdict()
         data["datetime"] = str(int(time.mktime(data["datetime"].timetuple())))
         errs = []
@@ -482,34 +328,51 @@ class MinerData:
         Returns:
             A influxdb line protocol version of this class.
         """
-        logging.debug(f"MinerData - (To InfluxDB) - Dumping InfluxDB data")
         tag_data = [measurement_name]
         field_data = []
 
         tags = ["ip", "mac", "model", "hostname"]
         for attribute in self:
             if attribute in tags:
-                escaped_data = self[attribute].replace(" ", "\\ ")
+                escaped_data = self.get(attribute, "Unknown").replace(" ", "\\ ")
                 tag_data.append(f"{attribute}={escaped_data}")
                 continue
-            if isinstance(self[attribute], str):
+            elif str(attribute).startswith("_"):
+                continue
+            elif isinstance(self[attribute], str):
                 field_data.append(f'{attribute}="{self[attribute]}"')
                 continue
-            if isinstance(self[attribute], bool):
+            elif isinstance(self[attribute], bool):
                 field_data.append(f"{attribute}={str(self[attribute]).lower()}")
                 continue
-            if isinstance(self[attribute], int):
+            elif isinstance(self[attribute], int):
                 field_data.append(f"{attribute}={self[attribute]}")
                 continue
-            if isinstance(self[attribute], float):
+            elif isinstance(self[attribute], float):
                 field_data.append(f"{attribute}={self[attribute]}")
                 continue
-            if attribute == "fault_light" and not self[attribute]:
-                field_data.append(f"{attribute}=false")
-                continue
-            if attribute == "errors":
+            elif attribute == "errors":
                 for idx, item in enumerate(self[attribute]):
                     field_data.append(f'error_{idx+1}="{item.error_message}"')
+            elif attribute == "hashboards":
+                for idx, item in enumerate(self[attribute]):
+                    field_data.append(
+                        f"hashboard_{idx+1}_hashrate={item.get('hashrate', 0.0)}"
+                    )
+                    field_data.append(
+                        f"hashboard_{idx+1}_temperature={item.get('temp', 0)}"
+                    )
+                    field_data.append(
+                        f"hashboard_{idx+1}_chip_temperature={item.get('chip_temp', 0)}"
+                    )
+                    field_data.append(f"hashboard_{idx+1}_chips={item.get('chips', 0)}")
+                    field_data.append(
+                        f"hashboard_{idx+1}_expected_chips={item.get('expected_chips', 0)}"
+                    )
+            elif attribute == "fans":
+                for idx, item in enumerate(self[attribute]):
+                    if item.speed is not None:
+                        field_data.append(f"fan_{idx+1}={item.speed}")
 
         tags_str = ",".join(tag_data)
         field_str = ",".join(field_data)

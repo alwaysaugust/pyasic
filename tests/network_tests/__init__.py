@@ -22,7 +22,7 @@ from pyasic.network import MinerNetwork
 
 class NetworkTest(unittest.TestCase):
     def test_net_range(self):
-        net_range_str = "192.168.1.29, 192.168.1.40-192.168.1.43, 192.168.1.60"
+        net_range_str = ["192.168.1.29", "192.168.1.40-43", "192.168.1.60"]
         net_range_list = [
             "192.168.1.29",
             "192.168.1.40",
@@ -32,8 +32,8 @@ class NetworkTest(unittest.TestCase):
             "192.168.1.60",
         ]
 
-        net_1 = list(MinerNetwork(net_range_str).get_network().hosts())
-        net_2 = list(MinerNetwork(net_range_list).get_network().hosts())
+        net_1 = list(MinerNetwork.from_list(net_range_list).hosts)
+        net_2 = list(MinerNetwork.from_list(net_range_str).hosts)
 
         correct_net = [
             ipaddress.IPv4Address("192.168.1.29"),
@@ -44,18 +44,16 @@ class NetworkTest(unittest.TestCase):
             ipaddress.IPv4Address("192.168.1.60"),
         ]
 
-        self.assertTrue(net_1 == correct_net)
-        self.assertTrue(net_2 == correct_net)
+        self.assertEqual(net_1, correct_net)
+        self.assertEqual(net_2, correct_net)
 
     def test_net(self):
         net_1_str = "192.168.1.0"
         net_1_mask = "/29"
 
-        net_1 = list(MinerNetwork(net_1_str, mask=net_1_mask).get_network().hosts())
+        net_1 = list(MinerNetwork.from_subnet(net_1_str + net_1_mask).hosts)
 
-        net_2 = list(
-            MinerNetwork("192.168.1.1-192.168.1.5, 192.168.1.6").get_network().hosts()
-        )
+        net_2 = list(MinerNetwork.from_list(["192.168.1.1-5", "192.168.1.6"]).hosts)
 
         correct_net = [
             ipaddress.IPv4Address("192.168.1.1"),
@@ -66,22 +64,14 @@ class NetworkTest(unittest.TestCase):
             ipaddress.IPv4Address("192.168.1.6"),
         ]
 
-        self.assertTrue(net_1 == correct_net)
-        self.assertTrue(net_2 == correct_net)
-
-    def test_net_len(self):
-        net = MinerNetwork("192.168.1.0", mask=32)
-        self.assertEqual(len(net), 1)
-
-        net2 = MinerNetwork("192.168.1.0", mask=31)
-        self.assertEqual(len(net2), 2)
+        self.assertEqual(net_1, correct_net)
+        self.assertEqual(net_2, correct_net)
 
     def test_net_defaults(self):
-        net = MinerNetwork()
-        net_obj = net.get_network()
-        self.assertEqual(net_obj, MinerNetwork("192.168.1.0", mask=24).get_network())
-
-        self.assertEqual(net_obj, net.get_network())
+        net = MinerNetwork.from_subnet("192.168.1.1/24")
+        self.assertEqual(
+            net.hosts, list(ipaddress.ip_network("192.168.1.0/24").hosts())
+        )
 
 
 if __name__ == "__main__":
